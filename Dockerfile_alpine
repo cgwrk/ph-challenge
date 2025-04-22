@@ -1,0 +1,10 @@
+#FIXME PIN TO VERSION
+FROM alpine:3
+
+RUN apk add --no-cache py3-pip py3-flask py3-pydicom py3-wand dcmtk py3-pillow py3-werkzeug && mkdir /src
+COPY /src/*.py /src/
+RUN chmod +x /src/*
+
+#FIXME add entry point
+ENTRYPOINT ["/src/dicomd.py"]
+
