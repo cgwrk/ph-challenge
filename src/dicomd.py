@@ -33,21 +33,29 @@ def upload():
     
   file = request.files['file']
 
+#FIXME: will this code ever run?  test it
   if file.filename == '':
     resp = jsonify({'message': 'No file selected for uploading'})
     resp.status_code = 400
     return resp
     
   if file:
-#FIXME.  what if someone has something evil in filename
+    #FIXME:  what if someone has something evil in filename.  I'm not sure this matters here.
     filename = secure_filename(file.filename) 
+    if os.path.exists(internalFile):
+      resp = jsonify({'message': 'file already exists.  Please remove it first.'})
+      resp.status_code = 400
+      return resp
     file.save(internalFile)
+    try:
+      ds = pydicom.dcmread(internalFile)
+    except:
+      os.remove(internalFile)
+      resp = jsonify({'message': 'Uploaded file does not appear to be a valid dicom file.  Please troubleshoot and re-upload it.'})
+      resp.status_code = 400
+      return resp
 
-#FIXME: DEBUG
-    ds = pydicom.dcmread(internalFile)
-    for e in ds:
-      print(f'DEBUG: Tags: {e}')
-
+#FIXME: return link to file, like successfully created object?
     resp = jsonify({'message': 'File successfully uploaded'})
     resp.status_code = 201
     return resp
@@ -55,15 +63,41 @@ def upload():
   resp.status_code = 400
   return resp
 
-#FIXME: document this.  should return all tags if none give
+@app.route(apiVersion + '/remove', methods=['DELETE'])
+def remove():
+  os.remove(internalFile)
+  resp = jsonify({'message': 'removed uploaded file.'})
+  resp.status_code = 200
+  return resp
+
+@app.route(apiVersion + '/tag', methods=['GET'], defaults={'tag': '*'})
 @app.route(apiVersion + '/tag/<tag>', methods=['GET'])
 def tag(tag):
+  try:
+    ds = pydicom.dcmread(internalFile)
+  except:
+    resp = jsonify({'message': 'No file has been uploaded yet.  Please upload a file first'})
+    resp.status_code = 400
+    return resp
+
   if not tag:
+    #I pretty sure this code won't run ever.. I have default value now
     resp = jsonify({'message': 'No tag part in the request'})
     resp.status_code = 400
     return resp
-  ds = pydicom.dcmread(internalFile)
-#FIXME match tag pattern 1234,5678
+  if tag == '*':
+    print("FixThis.  show All Tags")
+    taglist = []
+    for x in ds:
+      taglist.append(str(x.tag)[1:-1].replace(" ", ""))
+#FIXME.  As a rest api, I'm pretty sure it's supposed to return links to the proper url, not just text.
+    resp = jsonify({'Improper usage': 'These are the avalable tags for the uploaded file.  Please append it to the end after the tag in your url.  eg /v1/tag/0010,0001',
+                    'avalable tags': taglist
+                   })
+    resp.status_code = 200
+    return resp
+
+  # I have a tag, format it the way the api wants it
   formattedTag = '0x' + tag[0:4] + tag[5:]
   resp = jsonify(ds[formattedTag].to_json())
   resp.status_code = 200
@@ -71,18 +105,31 @@ def tag(tag):
 
 @app.route(apiVersion + '/image', methods=['GET'])
 def getImage():
-#FIXME:  What if this is not an image?
-  with Image(filename=internalFile) as img:
-    img.save(filename=internalFileImg)
-  return send_file(internalFileImg, mimetype='image/png')
-
+  try:
+    ds = pydicom.dcmread(internalFile)
+  except:
+    resp = jsonify({'message': 'No file has been uploaded yet.  Please upload a file first'})
+    resp.status_code = 400
+    return resp
+  try:
+    with Image(filename=internalFile) as img:
+      img.save(filename=internalFileImg)
+    return send_file(internalFileImg, mimetype='image/png')
+  except:
+    resp = jsonify({'message': 'Something went wrong in converting the image.  The uploaded file may not even be an image.  Please investigate.'})
+    resp.status_code = 400
+    return resp
 
 @app.route('/')
 def index():
 #FIXME, output usage
   return json.dumps({'usage': 'output a usage msg'})
 
+# Endpoints
+# /upload
+# /tag
+# /image
 
-app.run(host='0.0.0.0', port=port)
+app.run(host='0.0.0.0', port=port, debug=True)
 
 
