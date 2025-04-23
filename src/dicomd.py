@@ -1,29 +1,29 @@
 #!/usr/bin/env python3
 
-#FIXME, remove un-needed/wanted libs
-import json, pydicom, os, PIL, wand
+import json, pydicom, os, wand
 from flask import Flask, request, jsonify, send_file
 from werkzeug.utils import secure_filename
 from wand.image import Image
 
 #FIXME.  It is trusted that the file is what it says it is.  Some form of check to see if it is what it says it is maybe nice.
-#FIXME.  check local permissons when making file
-#FIXME.  write api and build docs
-#FIXME.  api does not catch or handle errors well and
+#FIXME.  Check local permissons when making file
 #FIXME.  There likely is a maximum length on file that can be uploaded.  I don't know what that is.
-#FIXME.  What if 2 clients use this api at once?  chaos.  some form of Auth?
+#FIXME.  What if 2 clients use this api at once?  chaos.  Some form of Auth and tracy by user? Path included in filename would work, but outside my ability at the moment.
+
+#FIXME.  write api and build docs
 
 port=8080
 rootDir="/data/"
-apiVersion='/v1'
+apiVersion='/api/v1'
 
-#As I am only handling 1 file at a time, I'll hard code it's internal path.
+#As I am only handling 1 file at a time, I'll hard code it's internal path.  This is not ideal.
 internalFile = rootDir + 'current_dicom_file.dcm'
 internalFileImg = rootDir + 'current_dicom_file.png'
 
 app = Flask(__name__)
 
-#FIXME.  What if the file is already there?  Protect? step on?
+# I am unsure if uploading a file like this is valid Rest. 
+# base64 encoding the file at the client and decoding it at the server maybe more valid, but would have more overhead on client and server.
 @app.route(apiVersion + '/upload', methods=['POST'])
 def upload():
   if 'file' not in request.files:
@@ -33,7 +33,7 @@ def upload():
     
   file = request.files['file']
 
-#FIXME: will this code ever run?  test it
+#FIXME: will this code ever run?  I don't think so, maybe empty filename?  test it
   if file.filename == '':
     resp = jsonify({'message': 'No file selected for uploading'})
     resp.status_code = 400
@@ -63,6 +63,7 @@ def upload():
   resp.status_code = 400
   return resp
 
+#maybe it would be better to put this under the upload url
 @app.route(apiVersion + '/remove', methods=['DELETE'])
 def remove():
   os.remove(internalFile)
@@ -122,14 +123,15 @@ def getImage():
 
 @app.route('/')
 def index():
-#FIXME, output usage
-  return json.dumps({'usage': 'output a usage msg'})
-
+#FIXME, output better usage
+  return json.dumps({'endpoints': [apiVersion + "upload",
+                                  apiVersion + "tag",
+                                  apiVersion + "image"]
+                   })
+# json.dumps({'endpoints': apiVersion + 'upload'})
 # Endpoints
-# /upload
-# /tag
-# /image
 
+#FIXME, just for testing, not prod.
 app.run(host='0.0.0.0', port=port, debug=True)
 
 
