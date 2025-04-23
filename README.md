@@ -76,11 +76,11 @@ http GET http://localhost:5000/api/v1/tags/MRI/PA000001/ST000001/SE000001/IM0000
 ```
 
 # Issues and possible improvements
-- ../ in paths do not provide a reasonable error message if they are early in the path, and go through and work as you’d expect .. would if later on in the file system.  I’m not sure how I feel about this, but I’d say its not ideal.  Probably completely banning relative path information would be better.
-- directory structure does not clean up empty directories ever
-- there is likely a file length limitation on the uploaded image, but I don’t know what it is or hwo the code will handle a file that hits this limit
+- ../ in paths do not provide a reasonable error message if they are early in the path, and go through and work as you would expect on a file system if later on in the url.  I’d say its not ideal.  Probably completely banning relative path information would be better.
+- This code does not clean up empty directories ever
+- there is likely a file length limitation on the uploaded image, but I don’t know what it is or how the code will handle a file that hits this limit.
 - still running the dev we server
 - 2 clients could try to work on the same file path at the same time and get in the way of each other without knowing it.
-- I’m not entirely sure if the url responses should produce hyper links.  I generally think the output I have produced as responses is lacking.  More for human interaction then a system.
-- What happens if someone puts an incredibly long path in the name.  Likely something bad that is not handled.  I see a problem here.  This may not have been a good idea not to restrict the length
+- I’m not entirely sure if the url responses should produce hyper links.  I generally think the output I have produced as responses is lacking.
+- What happens if someone puts an incredibly long path in the name.  Likely something bad.  I see a possible problem here.  This may not have been a good idea not to restrict the length of the url/filepath
 
