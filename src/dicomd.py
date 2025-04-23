@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-import json, pydicom, os, wand
+import json, pydicom, os, wand, re
 from flask import Flask, request, jsonify, send_file
 from werkzeug.utils import secure_filename
 from wand.image import Image
@@ -10,126 +10,150 @@ from wand.image import Image
 #FIXME.  There likely is a maximum length on file that can be uploaded.  I don't know what that is.
 #FIXME.  What if 2 clients use this api at once?  chaos.  Some form of Auth and tracy by user? Path included in filename would work, but outside my ability at the moment.
 
-#FIXME.  write api and build docs
-
 port=8080
 rootDir="/data/"
 apiVersion='/api/v1'
 
-#As I am only handling 1 file at a time, I'll hard code it's internal path.  This is not ideal.
-internalFile = rootDir + 'current_dicom_file.dcm'
-internalFileImg = rootDir + 'current_dicom_file.png'
-
 app = Flask(__name__)
+app.url_map.strict_slashes = False
 
 # I am unsure if uploading a file like this is valid Rest. 
 # base64 encoding the file at the client and decoding it at the server maybe more valid, but would have more overhead on client and server.
-@app.route(apiVersion + '/upload', methods=['POST'])
-def upload():
+@app.route(apiVersion + '/upload/<path:path>', methods=['POST'])
+def upload(path):
   if 'file' not in request.files:
-    resp = jsonify({'message': 'No file part in the request'})
+    resp = jsonify({'message': 'No file part in the request.  You need pass in a file to upload to this path.'})
     resp.status_code = 400
     return resp
     
-  file = request.files['file']
+  data = request.files['file']
 
-#FIXME: will this code ever run?  I don't think so, maybe empty filename?  test it
-  if file.filename == '':
+  #FIXME: will this code ever run?  I don't think so, maybe empty filename?  test it?  A clinet could pass it along?
+  if data.filename == '':
     resp = jsonify({'message': 'No file selected for uploading'})
     resp.status_code = 400
     return resp
     
-  if file:
+  if data:
     #FIXME:  what if someone has something evil in filename.  I'm not sure this matters here.
-    filename = secure_filename(file.filename) 
-    if os.path.exists(internalFile):
-      resp = jsonify({'message': 'file already exists.  Please remove it first.'})
+#    filename = secure_filename(data.filename) 
+    filename = secure_filename(rootDir + path) 
+    print(filename)
+    if os.path.exists(rootDir + path):
+      resp = jsonify({'message': 'file ' + path + ' already exists.  Please remove it first.',
+                      'file': path})
       resp.status_code = 400
       return resp
-    file.save(internalFile)
+    os.makedirs(os.path.dirname(rootDir + path), exist_ok=True)
+    data.save(rootDir + path)
     try:
-      ds = pydicom.dcmread(internalFile)
+      ds = pydicom.dcmread(rootDir + path)
     except:
-      os.remove(internalFile)
-      resp = jsonify({'message': 'Uploaded file does not appear to be a valid dicom file.  Please troubleshoot and re-upload it.'})
+      os.remove(rootDir + path)
+      resp = jsonify({'message': 'Uploaded file does not appear to be a valid dicom file.  Please troubleshoot and re-upload it.',
+                      'file': path})
       resp.status_code = 400
       return resp
 
-#FIXME: return link to file, like successfully created object?
-    resp = jsonify({'message': 'File successfully uploaded'})
+    resp = jsonify({'message': 'File successfully uploaded',
+                    'file': path})
     resp.status_code = 201
     return resp
-    
+  #catch all should not run 
+  resp = jsonify({'message': 'Unknown error uploading file.  Please contact support.'})
   resp.status_code = 400
   return resp
 
-#maybe it would be better to put this under the upload url
-@app.route(apiVersion + '/remove', methods=['DELETE'])
-def remove():
-  os.remove(internalFile)
-  resp = jsonify({'message': 'removed uploaded file.'})
-  resp.status_code = 200
+@app.route(apiVersion + '/remove/<path:path>', methods=['DELETE'])
+def remove(path):
+  #FIXME: program never cleans up its directory structure.
+  if os.path.exists(rootDir + path):
+    os.remove(rootDir + path)
+    #try to clean up the image incase it got created
+    if os.path.exists(rootDir + path + '.png'):
+      os.remove(rootDir + path + '.png')
+    resp = jsonify({'message': 'File was removed.',
+                    'file': path})
+    resp.status_code = 200
+    return resp
+  resp = jsonify({'message': 'File does not exist.  It may have already been removed.',
+                  'file': path})
+  resp.status_code = 400
   return resp
 
-@app.route(apiVersion + '/tag', methods=['GET'], defaults={'tag': '*'})
-@app.route(apiVersion + '/tag/<tag>', methods=['GET'])
-def tag(tag):
+@app.route(apiVersion + '/tags/<path:path>', methods=['GET'])
+def tag(path):
+  tag = request.args.get('tag')
+
   try:
-    ds = pydicom.dcmread(internalFile)
+    ds = pydicom.dcmread(rootDir + path)
   except:
-    resp = jsonify({'message': 'No file has been uploaded yet.  Please upload a file first'})
+    resp = jsonify({'message': 'File ' + path + ' has not been uploaded yet.  Please upload a file first'})
     resp.status_code = 400
     return resp
 
+  # if no tag specified, display all tags options
   if not tag:
-    #I pretty sure this code won't run ever.. I have default value now
-    resp = jsonify({'message': 'No tag part in the request'})
-    resp.status_code = 400
-    return resp
-  if tag == '*':
-    print("FixThis.  show All Tags")
     taglist = []
     for x in ds:
       taglist.append(str(x.tag)[1:-1].replace(" ", ""))
-#FIXME.  As a rest api, I'm pretty sure it's supposed to return links to the proper url, not just text.
-    resp = jsonify({'Improper usage': 'These are the avalable tags for the uploaded file.  Please append it to the end after the tag in your url.  eg /v1/tag/0010,0001',
-                    'avalable tags': taglist
+    resp = jsonify({'message': 'These are the avalable tags for the uploaded file.  Please append it to the end after the tag in your url.  EG ?tag=0010,0001',
+                    'file': path,
+                    'tags': taglist
                    })
+
     resp.status_code = 200
     return resp
-
-  # I have a tag, format it the way the api wants it
-  formattedTag = '0x' + tag[0:4] + tag[5:]
-  resp = jsonify(ds[formattedTag].to_json())
+  else:
+    tag = tag.lower()
+    #verify correct format passed in
+    if re.match('^[0-9a-f]{4}\,[0-9a-f]{4}$', tag):
+      formattedTag = '0x' + tag[0:4] + tag[5:]
+    else:
+      resp = jsonify({'message': 'Invalid tag.  Tags have to be two sets 4 hex charicters, seporated by a comma.  EG ?tag=0010,0001',
+                      'file': path })
+      resp.status_code = 400
+      return resp
+    
+  resp = jsonify({'message': 'All tag values',
+                 'file': path,
+                 'taginfo': ds[formattedTag].to_json() })
+  #FIXME: I'm not a fan of taginfo's formatting.
   resp.status_code = 200
   return resp
 
-@app.route(apiVersion + '/image', methods=['GET'])
-def getImage():
+@app.route(apiVersion + '/image/<path:path>', methods=['GET'])
+def getImage(path):
+  #FIXME: images maybe dark?  I'm not sure.  I don't want to increas the gain blind
+  #FIXME: this code never removes the created image files
   try:
-    ds = pydicom.dcmread(internalFile)
+    ds = pydicom.dcmread(rootDir + path)
   except:
-    resp = jsonify({'message': 'No file has been uploaded yet.  Please upload a file first'})
+    resp = jsonify({'message': 'File has not been uploaded yet.  Please upload it first.',
+                    'file': path})
     resp.status_code = 400
     return resp
   try:
-    with Image(filename=internalFile) as img:
-      img.save(filename=internalFileImg)
-    return send_file(internalFileImg, mimetype='image/png')
+    with Image(filename=rootDir + path) as img:
+      img.save(filename=rootDir + path + '.png')
+    return send_file(rootDir + path + '.png', mimetype='image/png')
   except:
-    resp = jsonify({'message': 'Something went wrong in converting the image.  The uploaded file may not even be an image.  Please investigate.'})
+    resp = jsonify({'message': 'Something went wrong in converting the image The uploaded file may not even be an image.  Please investigate and contact support if needed.',
+                    'file': path})
     resp.status_code = 400
     return resp
 
 @app.route('/')
+@app.route('/api')
+@app.route(apiVersion)
 def index():
-#FIXME, output better usage
-  return json.dumps({'endpoints': [apiVersion + "upload",
-                                  apiVersion + "tag",
-                                  apiVersion + "image"]
+  #FIXME, output better usage
+  return json.dumps({'message': 'Endpoints listed below with rough usage',
+                     'endpoints': [apiVersion + "upload/<as>/<much>/<path>/<as>/<you>/<like>/filename",
+                                  apiVersion + "tags/<as>/<much>/<path>/<as>/<you>/<like>/filename",
+                                  apiVersion + "image/<as>/<much>/<path>/<as>/<you>/<like>/filename",
+                                  apiVersion + "delete/<as>/<much>/<path>/<as>/<you>/<like>/filename"]
                    })
-# json.dumps({'endpoints': apiVersion + 'upload'})
-# Endpoints
 
 #FIXME, just for testing, not prod.
 app.run(host='0.0.0.0', port=port, debug=True)
